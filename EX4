@@ -1,0 +1,238 @@
+#include <fcntl.h>
+#include <time.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/select.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <stdbool.h>
+#include <netinet/in.h>
+#include <netdb.h>
+
+#define GREEN "\033[32m"
+#define YELLOW "\033[33m"
+#define BLUE "\033[34m"
+#define MAGENTA "\033[35m"
+#define WHITE "\033[37m"
+
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+
+int main(int argc, char** argv) {
+  bool dpg = false;    //boolean metavliti gia to debug
+  char *host = "tcp.akolaitis.os.grnetcloud.net";
+  int given = 1; // 1 = arxikh timh, 2 = metakinisi, 3 = kwdikos, 4 = get
+  if(argc > 4) {
+    printf("Correct form :./tsanakas4 [--host-HOST] [--port-PORT] [--debug]\n");
+    exit(0);
+  }
+if (argc == 4) {
+  if((strncmp(argv[1],"--host-tcp.akolaitis.os.grnetcloud.net",38) == 0) && (strncmp(argv[2],"--port-8080",11) == 0) && (strncmp(argv[3],"--debug",7) == 0)) {
+    dpg = true;
+  }
+  else {
+    printf("Can't connect to the given server or the format is wrong");
+    exit(0);
+  }
+}
+if(argc == 3) {
+  if (((strncmp(argv[1],"--host-tcp.akolaitis.os.grnetcloud.net",38) == 0) || (strncmp(argv[1],"--port-8080",11) == 0)) && (strncmp(argv[2],"--debug",7) == 0)) {
+    dpg = true;
+  }
+  else if ((strncmp(argv[1],"--host-tcp.akolaitis.os.grnetcloud.net",38) == 0) && (strncmp(argv[2],"--port-8080",11) == 0)){
+    dpg = false;
+  }
+  else {
+    printf("Can't connect to the given server or the format is wrong");
+    exit(0);
+  }
+}
+if (argc == 2) {
+if ((strncmp(argv[1],"--host-tcp.akolaitis.os.grnetcloud.net",38) == 0) || (strncmp(argv[1],"--port-8080",11) == 0)) {
+  dpg  = false;
+}
+else if(strncmp(argv[1],"--debug",7) == 0) {
+  dpg = true;
+}
+else {
+  printf("Can't connect to the given server or the format is wrong");
+  exit(0);
+}
+}
+
+int sd;
+struct sockaddr_in server;
+struct sockaddr_in client;
+
+if((sd = socket(AF_INET,SOCK_STREAM,0)) < 0) {   //dhmiourgia socket
+  perror("socket");
+  exit(-1);
+}
+client.sin_family = AF_INET;   // protokolo sundesis
+client.sin_port  = htons(0);   // dinei to leitourgiko opoion arithmo einai diathesimos
+client.sin_addr.s_addr = htonl(INADDR_ANY); // dexetai sundeseis apo opoiodipote diktio
+
+if (bind(sd,&client,sizeof(client)) < 0) { // kanoume to bind kai dinoume mia dieuthinsi sto sd proairetiko
+  perror("bind");
+  return -1;
+}
+
+struct hostent *server_host;
+server_host = gethostbyname(host);  //pairnei th dieuthinsi tou server
+
+server.sin_family = AF_INET;
+server.sin_port = htons(8080);
+bcopy(server_host->h_addr, &server.sin_addr, server_host->h_length);  //dinoume sto server th dieuthinsi tou host
+
+printf(BLUE"Connecting!"WHITE"\n");
+
+if((connect(sd,&server,sizeof(server))) < 0) {   //dhmiourgia sundesis
+  perror("connect");
+  exit(-1);
+}
+printf(GREEN"Connected to %s!"WHITE"\n",host);
+
+while (1) {   //atermwn vroxos
+        fd_set inset;  //ftiaxnw ena fd_set
+        int maxsd;
+
+        FD_ZERO(&inset);      // kathe fora pou ksanabainoume sti loupa mhdenizoume to inset
+        FD_SET(STDIN_FILENO, &inset);   // vazoume sto set ta file descriptors
+        FD_SET(sd, &inset);
+        maxsd = MAX(STDIN_FILENO, sd) + 1;
+        int ready_sds = select(maxsd, &inset, NULL, NULL, NULL);
+        if (ready_sds <= 0) {
+            perror("select");
+            continue;
+        }
+        if (FD_ISSET(STDIN_FILENO, &inset)) {
+          char buffer[101];
+          int n_read = read(STDIN_FILENO, buffer, 100);
+          buffer[n_read] = '\0';
+
+          if (n_read > 0 && buffer[n_read-1] == '\n') {
+            buffer[n_read-1] = '\0';
+          }
+
+          if (n_read==-1){// error checking!
+  					perror("read");
+  					exit(-1);
+  				}
+
+
+          if (strncmp(buffer,"help",4) == 0) {
+            given = 1; // to arxikopoioume
+            printf(YELLOW"Available commands:"WHITE"\n");
+            printf(YELLOW"help                    :Print this help message"WHITE"\n");
+            printf(YELLOW"exit                    :Exit"WHITE"\n");
+            printf(YELLOW"get                     :Retrive sensor data"WHITE"\n");
+            printf(YELLOW"N name surname reason   :Ask permission to go out"WHITE"\n");
+          }
+
+          else if (strncmp(buffer,"exit",4) == 0) {
+            shutdown(sd,2);
+            close(sd);
+            exit(0);
+          }
+
+          else if (strncmp(buffer,"get",3) == 0) {
+            given = 4;  //to kanw 4 epeidi pernoume get apo to terminal
+            write(sd,buffer,n_read);  // stelnoume sto server to get
+            if (dpg == true) {
+              printf(YELLOW"[DEBUG] sent 'get'"WHITE"\n");
+            }
+          }
+
+          else if (given == 2) { //mas exei epistrepsei ton kwdiko o server kai toun ksanastelnoume gia epivevaiwsh
+            given = 3;
+            write(sd, buffer, n_read); // ksanastelnoume ton kwdiko
+            if (dpg == true) {
+              printf(YELLOW"[DEBUG] sent '%s'"WHITE"\n",buffer);
+            }
+          }
+          else {  // tha bei otan stelnw onoma h lathos
+            given = 2;  //pairnw onoma kai to stelnw sto server
+            write(sd, buffer, n_read);
+            if (dpg == true) {
+              printf(YELLOW"[DEBUG] sent '%s'"WHITE"\n",buffer);
+            }
+          }
+        }
+        if (FD_ISSET(sd, &inset)) {
+          char buffer[101];
+          int n_read = read(sd, buffer, 100);
+          buffer[n_read] = '\0';
+
+          if (n_read > 0 && buffer[n_read-1] == '\n') {
+                  buffer[n_read-1] = '\0';
+          }
+
+          if(strncmp(buffer, "try again", 9) == 0) {
+            given = 1;
+            if (dpg == true) {
+              printf(YELLOW"[DEBUG] read '%s'"WHITE"\n",buffer);
+            }
+            printf(MAGENTA"try again"WHITE"\n");
+          }
+          if (given == 4) { // perimenw na parw ta dedomena ths metrisis
+            if (dpg == true) {
+              printf(YELLOW"[DEBUG] read '%s'"WHITE"\n",buffer); //pairnw ta dedomena tis metrisis
+            }
+            printf(BLUE"----------------------------\nLatest event:\n");
+            int a = atoi(buffer);
+            int b = atoi(buffer+1);
+            int c = atoi(buffer+5);
+            long int d = atoi(buffer+10);
+
+           if (a==0){
+              printf("boot(0)\n");
+            }
+           if (a==1) {
+             printf("setup(1)\n");
+            }
+           if (a==2) {
+             printf("interval(2)\n");
+            }
+           if (a==3) {
+              printf("button(3)\n");
+            }
+           if (a==4) {
+             printf("motion(4)\n");
+           }
+           printf("Temperature is: %d,%d\n",c/100,c%100);
+           printf("Light level is: %d\n",b%100);
+           int year = 1900+localtime(&d)->tm_year;	//localtime returns a pointer to a tm struct
+   				 int month = localtime(&d)->tm_mon;
+   			   int day = localtime(&d)->tm_mday;
+   				 int hour = localtime(&d)->tm_hour;
+   				 int minute = localtime(&d)->tm_min;
+   				 int second = localtime(&d)->tm_sec;
+           printf("Timestamp is: %d-%d-%d %d:%d:%d"WHITE"\n",year,month,day,hour,minute,second);
+           given = 1;
+          }
+        if (given == 2) { // mou esteile to server ton kwdiko kai ton ektipwnw
+          if (dpg == true) {
+            printf(YELLOW"[DEBUG] read '%s'"WHITE"\n",buffer);
+          }
+          printf(BLUE"Send verification code '%s'"WHITE"\n",buffer);
+        }
+        if (given == 3) { //mas exei apanthsei o server gia to an o kwdikos pou steilame einai h oxi swstos
+          if (dpg == true) {
+            printf(YELLOW"[DEBUG] read '%s'"WHITE"\n",buffer);
+          }
+          if (strncmp(buffer, "invalid code", 12) == 0) {
+            printf(MAGENTA"try again"WHITE"\n");
+          }
+          else {
+            printf(GREEN"Response:'%s'"WHITE"\n",buffer);
+          }
+          given = 1;
+        }
+      }
+    }
+}

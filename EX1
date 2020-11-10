@@ -1,0 +1,125 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <string.h>
+#define Perms 0644
+
+typedef enum {
+    ENCRYPT,
+    DECRYPT
+} encrypt_mode;
+ char caesar(unsigned char ch, encrypt_mode mode, int key)
+{
+    if (ch >= 'a' && ch <= 'z') {
+        if (mode == ENCRYPT) {
+            ch += key;
+            if (ch > 'z') ch -= 26;
+        } else {
+            ch -= key;
+            if (ch < 'a') ch += 26;
+        }
+        return ch;
+    }
+
+    if (ch >= 'A' && ch <= 'Z') {
+        if (mode == ENCRYPT) {
+            ch += key;
+            if (ch > 'Z') ch -= 26;
+        } else {
+            ch -= key;
+            if (ch < 'A') ch += 26;
+        }
+        return ch;
+    }
+
+    return ch;
+}
+
+
+int main() {
+  int status;
+  int n_read, n_write, key;
+  int BUFFER_SIZE = 1;
+  int i = 0;
+  char buffer[BUFFER_SIZE];
+  pid_t C1;
+  pid_t C2;
+  char filename[20];
+  char output[50];
+  scanf("%s", filename);
+  scanf("%d", &key);
+  if (key > 25 || key < 0) {
+    printf ("%s\n", "Give a key between 0 and 25");
+    exit(0);
+  }
+  C1 = fork();
+   if(C1 == -1) {
+     perror ("fork");
+   }
+   else if (C1 == 0) {
+     int fd_out = creat ("out.txt", Perms);
+     if (fd_out == -1) {
+       perror ("creat");
+       exit(-1);
+     }
+     int fd_in = open (filename, Perms);
+     if (fd_in == -1) {
+       perror ("open");
+       exit(-1);
+     }
+     do {
+       n_read = read (fd_in, buffer, BUFFER_SIZE);
+       if (n_read == -1) {
+         perror("read");
+         exit(-1);
+       }
+       buffer[0] = caesar(buffer[0], ENCRYPT, key);
+       n_write = write(fd_out, buffer, n_read);
+       if(n_write < n_read) {
+         perror("write");
+         exit(-1);
+       }
+     }
+     while (n_read > 0);
+     close (fd_in);
+     close (fd_out);
+   }
+   else {
+     wait(&status);
+   C2 = fork();
+   if(C2 == -1) {
+     perror("fork");
+   }
+   else if(C2 == 0) {
+    int  fd_out = open("out.txt", Perms);
+     if (fd_out == -1) {
+       perror("open");
+       exit(-1);
+     }
+     do {
+       n_read = read(fd_out, buffer, BUFFER_SIZE);
+       if (n_read == -1) {
+         perror("read");
+         exit(-1);
+       }
+       buffer[0] = caesar(buffer[0], DECRYPT, key);
+       output[i] = buffer[0];
+       i = i + 1;
+     }
+     while (n_read > 0);
+     for (int j = 0; j < i; j++) {
+       printf ("%c", output[j]);
+     }
+     close (fd_out);
+   }
+   else {
+     wait(&status);
+   }
+ }
+
+   return 0;
+}

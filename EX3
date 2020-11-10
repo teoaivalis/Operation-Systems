@@ -1,0 +1,219 @@
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <stdbool.h>
+#include <string.h>
+#include <sys/select.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
+//define some colors some are useless for us
+#define DEFAULT "\033[30;1m"
+#define RED "\033[31;1m"
+#define GREEN "\033[32m"
+#define YELLOW "\033[33m"
+#define BLUE "\033[34m"
+#define MAGENTA "\033[35m"
+#define CYAN "\033[36m"
+#define WHITE "\033[37m"
+#define GRAY "\033[38;1m"
+
+
+int counter = 0;
+
+int round_robin_mode( int N ){
+  int next_number = counter % N ;
+  return next_number;
+}
+int random_mode( int N ){
+  int next_number = rand();
+  next_number=next_number % N ;
+  return next_number;
+}
+
+int main(int argc, char** argv) {
+
+  if( argc < 2 || argc > 3 ){
+    printf(RED"Usage: %s <nChildren> [--random][--round-robin]"WHITE"\n",argv[0]);
+    exit(0);
+  }
+  int N=atoi(argv[1]);
+  if (N < 1){
+    printf(RED"Give me my children(only positive numbers)"WHITE"\n");
+    exit(0);
+  }
+  bool mode =false; //an einai false pairnei th round-robin mode(default)
+
+  if (argc > 2){
+    if (strncmp(argv[2], "--round-robin", 13) == 0) {
+      mode =false; //false ==--round-robin
+    }
+    else if (strncmp(argv[2], "--random", 8) == 0) {
+      mode =true;
+    }
+    else {
+      printf(RED"Usage: %s <nChildren> [--random][--round-robin]"WHITE"\n",argv[0]);
+      exit(0);
+    }	//exv parei lathos trito orisma(kapoia allh lathos leksh)
+  }
+
+  int read_pipe[N][2]; //read_pipe[0]-->diabazei paidi, read_pipe[1]-->grafei patearas
+  int write_pipe[N][2]; //write_pipe[0]-->diabazei pateras, write_pipe[1]-->grafei paidi
+
+  for(int i=0; i<N; i++){
+    if(pipe(read_pipe[i])!=0){
+      perror("pipe");
+    }
+    if(pipe(write_pipe[i])!=0){
+      perror("pipe");
+    }
+  }
+
+  int pidarray[N]; //pinakas gia pid paidivn
+  pid_t pid;
+  for(int i=0; i<N; i++){ //dhmioyrgia paidivn
+    pid=fork();
+    if (pid == -1) {
+      perror("fork");
+    }
+    else if(pid==0){  //kvdikas paidioy
+      for(int j=0; j<i; j++){   //kleinv osa pipes den xreiazomai(tvn allvn paidivn kai tou patera)
+        close(read_pipe[j][0]);
+        close(read_pipe[j][1]);
+        close(write_pipe[j][0]);
+        close(write_pipe[j][1]);
+      }
+      for(int j=i+1; j<N; j++){
+        close(read_pipe[j][0]);
+        close(read_pipe[j][1]);
+        close(write_pipe[j][0]);
+        close(write_pipe[j][1]);
+     }
+     close(read_pipe[i][1]);
+     close(write_pipe[i][0]);
+
+     int value;
+     while(1){
+       if (read(read_pipe[i][0], &value, sizeof(int))==-1) {
+         perror("read"); //an den mporesei na diabasei apo to buffer bgazei error
+       }
+       //allivs perimenei na diabasei kai kollaei mexri na exei o buffer kati
+      //na diabasei kai tote ksekollaei
+      printf(CYAN"[Child %d] [%d] Child received %d!"WHITE"\n", i, getpid(), value);
+      value++;
+      sleep(5);
+      if(write(write_pipe[i][1],&value,sizeof(int))== -1){
+        perror("write");
+        exit(-1);        //an den kataferv na grapsv ston patera exv error
+      }
+      printf(GREEN"[Child %d] [%d] Child Finished hard work, writing back %d"WHITE"\n",i,getpid(),value);
+     }
+       close(read_pipe[i][0]);   //kleinv kai ayta ta akra pou xrhsimopoihsa
+       close(write_pipe[i][1]);  //xvris na epireazei ousiastika se kati
+    }
+    else{
+      pidarray[i]=pid; //enhmervnv ta pid kai sto patera
+    }
+  }
+  //tvra kvdikas patera
+  if(pid > 0){
+    for(int j=0; j<N; j++){  //kleinv pali ta pipes pou den xreiazomai(tvn paidivn)
+      close(read_pipe[j][0]);
+      close(write_pipe[j][1]);
+    }
+    while(1){
+      fd_set inset;
+      int maxfd,newmaxfd;
+      int value;
+
+      FD_ZERO(&inset);                // we must initialize before each call to select
+      FD_SET(STDIN_FILENO, &inset);   // select will check for input from stdin
+      for(int i=0; i<N; i++){
+      FD_SET(write_pipe[i][0], &inset);          // select will check for input from pipe
+      }
+      maxfd=MAX(STDIN_FILENO, write_pipe[0][0]) ; //ypologizei to megisto file descriptor
+      for(int i=1; i<N; i++){                    //mesa sta opoia tha paei kai tha elegjei
+        newmaxfd=MAX(maxfd,write_pipe[i][0]);   //h select h opoia tha epistrepsei to prvto
+      }                                        //diathesimo
+      newmaxfd = newmaxfd + 1 ;  //prosthetv 1 gia na pairnei kai to teleytaio
+
+      // wait until any of the input file descriptors are ready to receive
+      int ready_fds = select(newmaxfd, &inset, NULL, NULL, NULL);
+
+      if (ready_fds <= 0) {
+          perror("select");
+          continue;                                       // just try again
+      }
+
+      if (FD_ISSET(STDIN_FILENO, &inset)) {    //kvdikas gia diabasma apo plhktrologio
+				char buffer[101];
+        int n_read = read(STDIN_FILENO, buffer, 100);
+				if (n_read==-1){// error checking!
+					perror("read");
+					exit(-1);
+				}
+				buffer[n_read] = '\0';
+
+        if (n_read == 2 && strncmp(buffer, "0", 1) == 0){
+          int val =0;
+          if(mode == true){
+            counter = random_mode(N);
+            printf(MAGENTA"[Parent] Assigned %d to child %d "WHITE"\n",val,counter);
+            write(read_pipe[counter][1], &val, sizeof(int));
+          }
+          else{   //edv einai kai h default
+            counter = round_robin_mode(N);
+            printf(MAGENTA"[Parent] Assigned %d to child %d "WHITE"\n",val,counter);
+            write(read_pipe[counter][1], &val, sizeof(int));
+            counter++;
+          }
+        }
+
+          else if (n_read == 5 && strncmp(buffer, "exit",4) == 0){
+          for(int i=0; i<N; i++){
+            kill(pidarray[i],SIGTERM);
+            wait(NULL);
+            printf(CYAN"Waiting for %d "WHITE"\n", (N-i) );
+          }
+          printf(RED"All children terminated "WHITE"\n");
+          exit(0);
+        }
+
+
+        else if ((value=atoi(buffer))!=0){
+          if(mode == true){
+            counter = random_mode(N);
+            printf(MAGENTA"[Parent] Assigned %d to chile %d "WHITE"\n",value,counter);
+            write(read_pipe[counter][1], &value, sizeof(int));
+          }
+          else{   //edv einai kai h default
+            counter = round_robin_mode(N);
+            printf(MAGENTA"[Parent] Assigned %d to chile %d "WHITE"\n",value,counter);
+            write(read_pipe[counter][1], &value, sizeof(int));
+            counter++;
+          }
+        }
+        else { //an parv kati ektos tvn parapanv h help
+        	printf(BLUE"Type a positive number to send job to a child!"WHITE"\n");
+        }
+    }
+
+    for(int i=0; i<N; i++){
+      if(FD_ISSET(write_pipe[i][0],&inset)){
+        int myvalue;
+        read(write_pipe[i][0],&myvalue,sizeof(int));
+        printf(YELLOW"[Parent] Received result from child %d --> %d "WHITE"\n",i,myvalue);
+      }
+    }
+    }
+  }
+
+
+return 0;
+
+
+}

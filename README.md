@@ -1,1 +1,1 @@
-# OS_TSAN
+# OS_Exercises
